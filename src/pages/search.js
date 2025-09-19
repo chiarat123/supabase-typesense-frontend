@@ -1,7 +1,15 @@
+console.log("TS_HOST =", process.env.NEXT_PUBLIC_TYPESENSE_HOST);
+console.log("TS_KEY set? =", !!process.env.NEXT_PUBLIC_TYPESENSE_SEARCH_KEY);
+
+
 import { useEffect, useMemo, useState } from "react";
 
 const TS_HOST = process.env.NEXT_PUBLIC_TYPESENSE_HOST; // e.g. https://xxxx.a1.typesense.net
 const TS_KEY = process.env.NEXT_PUBLIC_TYPESENSE_SEARCH_KEY;
+
+console.log("TS_HOST =", process.env.NEXT_PUBLIC_TYPESENSE_HOST);
+console.log("TS_KEY set? =", !!process.env.NEXT_PUBLIC_TYPESENSE_SEARCH_KEY);
+
 
 export default function SearchPage() {
   const [q, setQ] = useState("");
@@ -36,28 +44,49 @@ export default function SearchPage() {
     return params;
   }, [q, facets, sort]);
 
-  async function runSearch() {
-    setLoading(true);
-    setError("");
-    try {
-      const res = await fetch(`${TS_HOST}/collections/suppliers/documents/search`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-TYPESENSE-API-KEY": TS_KEY,
-        },
-        body: JSON.stringify(Object.fromEntries(searchParams)),
-      });
+ async function runSearch() {
+  setLoading(true);
+  setError("");
 
-      if (!res.ok) throw new Error(`Typesense ${res.status}`);
-      const data = await res.json();
-      setHits(data.hits?.map(h => h.document) ?? []);
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
+  try {
+    const params = new URLSearchParams();
+    params.set("q", q || "*");
+    params.set("query_by", "name,industry,province,keywords");
+    params.set("facet_by", "industry,province,verified,certifications");
+    params.set("sort_by", sort);
+    params.set("include_fields", "id,name,industry,province,verified");
+    params.set("per_page", "20");
+
+    const filterParts = [];
+    if (facets.industry) filterParts.push(`industry:=${JSON.stringify(facets.industry)}`);
+    if (facets.province) filterParts.push(`province:=${JSON.stringify(facets.province)}`);
+    if (facets.verified) filterParts.push(`verified:=${facets.verified === "true" ? "true" : "false"}`);
+    if (facets.certifications) filterParts.push(`certifications:=[${JSON.stringify(facets.certifications)}]`);
+    if (filterParts.length) params.set("filter_by", filterParts.join(" && "));
+
+    const url = `${TS_HOST}/collections/suppliers/documents/search?${params.toString()}`;
+
+    const res = await fetch(url, {
+      method: "GET",
+      headers: { "X-TYPESENSE-API-KEY": TS_KEY },
+    });
+
+    const text = await res.text();
+    if (!res.ok) {
+      console.error("Typesense error", res.status, text);
+      throw new Error(`Typesense ${res.status}: ${text}`);
     }
+
+    const data = JSON.parse(text);
+    setHits(data.hits?.map(h => h.document) ?? []);
+  } catch (e) {
+    setError(e.message);
+  } finally {
+    setLoading(false);
   }
+}
+
+
 
   useEffect(() => {
     runSearch(); // initial load
